@@ -4,18 +4,24 @@ import os
 from dataclasses import dataclass
 
 
+_ENV_PREFIXES: tuple[str, ...] = ("LEJUSTE_", "")
+
+
 def _env(name: str, *, default: str | None = None) -> str | None:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    value = value.strip()
-    return value or default
+    for prefix in _ENV_PREFIXES:
+        key = f"{prefix}{name}" if prefix else name
+        value = os.getenv(key)
+        if value is None:
+            continue
+        value = value.strip()
+        return value or default
+    return default
 
 
 def _required(name: str) -> str:
     value = _env(name)
     if value is None:
-        raise ValueError(f"Missing required environment variable: {name}")
+        raise ValueError(f"Missing required environment variable: LEJUSTE_{name} (or {name})")
     return value
 
 

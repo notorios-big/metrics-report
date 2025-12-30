@@ -16,9 +16,9 @@ except ModuleNotFoundError:
 
 
 def _require(name: str) -> str:
-    value = (os.getenv(name) or "").strip()
+    value = (os.getenv(f"LEJUSTE_{name}") or os.getenv(name) or "").strip()
     if not value:
-        raise SystemExit(f"Missing env var: {name}")
+        raise SystemExit(f"Missing env var: LEJUSTE_{name} (or {name})")
     return value
 
 

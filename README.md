@@ -67,7 +67,10 @@ Klaviyo:
 
 Otros:
 
-- `REPORT_TIMEZONE` (default: `America/Santiago`)
+- `LEJUSTE_REPORT_TIMEZONE` (o `REPORT_TIMEZONE`, default: `America/Santiago`)
+
+Prefijo:
+- La app soporta variables con prefijo `LEJUSTE_` (recomendado) y también sin prefijo por compatibilidad.
 
 ## Ejecutar local
 
@@ -113,6 +116,9 @@ Helpers (opcionales) para deploy/scheduler:
 2) Crear Cloud Run Job (ejemplo, usando Secret Manager para credenciales):
 
 `gcloud run jobs create metrics-report --image gcr.io/PROJECT_ID/metrics-report --region REGION --service-account SERVICE_ACCOUNT_EMAIL --set-env-vars GOOGLE_SHEETS_SPREADSHEET_ID=... --set-secrets SHOPIFY_ACCESS_TOKEN=SHOPIFY_ACCESS_TOKEN:latest,META_ACCESS_TOKEN=META_ACCESS_TOKEN:latest,KLAVIYO_PRIVATE_KEY=KLAVIYO_PRIVATE_KEY:latest,GOOGLE_ADS_DEVELOPER_TOKEN=GOOGLE_ADS_DEVELOPER_TOKEN:latest,GOOGLE_ADS_OAUTH_CLIENT_ID=GOOGLE_ADS_OAUTH_CLIENT_ID:latest,GOOGLE_ADS_OAUTH_CLIENT_SECRET=GOOGLE_ADS_OAUTH_CLIENT_SECRET:latest,GOOGLE_ADS_OAUTH_REFRESH_TOKEN=GOOGLE_ADS_OAUTH_REFRESH_TOKEN:latest`
+
+Recomendado (nombres de secretos con prefijo `LEJUSTE_`):
+`gcloud run jobs update metrics-report --region REGION --set-secrets LEJUSTE_SHOPIFY_ACCESS_TOKEN=LEJUSTE_SHOPIFY_ACCESS_TOKEN:latest,LEJUSTE_META_ACCESS_TOKEN=LEJUSTE_META_ACCESS_TOKEN:latest,LEJUSTE_KLAVIYO_PRIVATE_KEY=LEJUSTE_KLAVIYO_PRIVATE_KEY:latest,LEJUSTE_GOOGLE_ADS_DEVELOPER_TOKEN=LEJUSTE_GOOGLE_ADS_DEVELOPER_TOKEN:latest,LEJUSTE_GOOGLE_ADS_OAUTH_CLIENT_ID=LEJUSTE_GOOGLE_ADS_OAUTH_CLIENT_ID:latest,LEJUSTE_GOOGLE_ADS_OAUTH_CLIENT_SECRET=LEJUSTE_GOOGLE_ADS_OAUTH_CLIENT_SECRET:latest,LEJUSTE_GOOGLE_ADS_OAUTH_REFRESH_TOKEN=LEJUSTE_GOOGLE_ADS_OAUTH_REFRESH_TOKEN:latest`
 
 3) Crear Cloud Scheduler para ejecutar el Job 1 vez al día (ejemplo 09:00 SCL):
 
