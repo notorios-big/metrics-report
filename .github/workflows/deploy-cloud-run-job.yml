@@ -32,7 +32,27 @@ jobs:
           set -euo pipefail
           IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.JOB_NAME }}"
           gcloud config set project "${{ secrets.GCP_PROJECT_ID }}"
-          gcloud builds submit --tag "${IMAGE}" .
+          BUILD_ID="$(gcloud builds submit --tag "${IMAGE}" . --async --format='value(id)')"
+          echo "Cloud Build started: ${BUILD_ID}"
+
+          # Avoid streaming logs (can fail with VPC-SC). Poll build status instead.
+          deadline="$((SECONDS + 1800))" # 30 min
+          while true; do
+            status="$(gcloud builds describe "${BUILD_ID}" --format='value(status)')"
+            echo "Build status: ${status}"
+            if [[ "${status}" == "SUCCESS" ]]; then
+              break
+            fi
+            if [[ "${status}" == "FAILURE" || "${status}" == "CANCELLED" || "${status}" == "TIMEOUT" ]]; then
+              echo "Build failed with status: ${status}" >&2
+              exit 1
+            fi
+            if (( SECONDS > deadline )); then
+              echo "Build timed out waiting for completion." >&2
+              exit 1
+            fi
+            sleep 10
+          done
 
       - name: Create/update Cloud Run Job
         run: |
@@ -49,4 +69,3 @@ jobs:
               --region "${{ env.REGION }}" \
               --service-account "${{ secrets.CLOUD_RUN_JOB_SERVICE_ACCOUNT_EMAIL }}"
           fi
-
