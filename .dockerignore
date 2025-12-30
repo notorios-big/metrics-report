@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+gs_cred.json
+.git/
+.DS_Store
