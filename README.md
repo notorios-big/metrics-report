@@ -96,6 +96,7 @@ En Cloud Run, usa Secret Manager y mapea secretos a variables de entorno (no use
 Helpers (opcionales) para deploy/scheduler:
 - `scripts/gcp/deploy_job.sh` (build + create/update Job)
 - `scripts/gcp/create_scheduler.sh` (create/update Scheduler)
+- `docs/DEPLOYMENT.md` (documenta la configuración real en GCP/GitHub)
 
 0) Prerrequisitos (1 sola vez):
 
