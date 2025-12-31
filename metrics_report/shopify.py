@@ -132,7 +132,7 @@ def aggregate_orders_to_rows(
     start_ymd: str,
     end_ymd: str,
     timezone: str,
-    fixed_deduction_per_order: int = 5000,
+    fixed_deduction_per_order: int = 0,
     vat_factor: float = 1.19,
 ) -> list[dict[str, Any]]:
     start_date = parse_ymd(start_ymd)
