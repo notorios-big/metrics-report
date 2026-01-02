@@ -8,6 +8,9 @@ Reemplazo en Python de los flujos n8n:
 Corre una vez al día y escribe métricas en Google Sheets (tabs: `PURCHASE`, `META`, `GADS`, `KLAVIYO`).
 
 - `META` y `GADS` se guardan como totales diarios (no se repite la fecha).
+  - La columna de fecha puede estar como texto (`YYYY-MM-DD`) o como fecha de Sheets (o `DD/MM/YYYY`).
+- También actualiza un consolidado de clientes (RFM) en otro Google Sheet (tab: `Consolidado`).
+  - Solo pisa `Frecuency/Recency/Money/Sensibilidad a descuento` y columnas internas `__*` (no toca `Buy_reason/Occasion_trigger/Desired_outcome` ni otras columnas manuales).
 
 ## Requisitos
 
@@ -23,12 +26,16 @@ Google Sheets:
 - `GOOGLE_SHEETS_META_SHEET` (default: `META`)
 - `GOOGLE_SHEETS_GADS_SHEET` (default: `GADS`)
 - `GOOGLE_SHEETS_KLAVIYO_SHEET` (default: `KLAVIYO`)
+- `GOOGLE_SHEETS_CUSTOMERS_SPREADSHEET_ID` (default: `1-EU1O1bWvrO6wjMTqIuFoDaAdiBFVepPtDM7pHSVbJU`)
+- `GOOGLE_SHEETS_CUSTOMERS_SHEET` (default: `Consolidado`)
 
 Shopify:
 
 - `SHOPIFY_ACCESS_TOKEN` (requerida)
 - `SHOPIFY_SHOP_DOMAIN` (default: `le-juste-s.myshopify.com`)
 - `SHOPIFY_API_VERSION` (default: `2024-10`)
+- `SHOPIFY_VAT_FACTOR` (default: `1.19`, para calcular neto = total / factor)
+- `SHOPIFY_FIXED_DEDUCTION_PER_ORDER` (default: `0`, deducción fija antes de IVA; dejar en 0 para “lo que pagó el cliente”)
 
 Meta:
 

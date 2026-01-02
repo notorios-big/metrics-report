@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from dataclasses import dataclass
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,7 @@ from googleapiclient.discovery import build
 
 _LOG = logging.getLogger(__name__)
 _YMD_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_DMY_RE = re.compile(r"^(?P<d>\d{1,2})[/-](?P<m>\d{1,2})[/-](?P<y>\d{4})$")
 
 
 def _adc_credentials_path() -> Path | None:
@@ -66,6 +68,51 @@ def _col_letter(col_index: int) -> str:
     return out
 
 
+def _sheets_serial_to_date(value: float) -> date | None:
+    # Google Sheets "date" serials are days since 1899-12-30.
+    # See: https://support.google.com/docs/answer/3092969
+    try:
+        if value != value:  # NaN
+            return None
+        days = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if days <= 0:
+        return None
+    epoch = date(1899, 12, 30)
+    try:
+        return epoch + timedelta(days=days)
+    except (OverflowError, ValueError):
+        return None
+
+
+def _coerce_cell_to_ymd(value: Any) -> str | None:
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        if _YMD_RE.match(s):
+            return s
+        # Common for Sheets locales: "21/12/2025" (dd/mm/yyyy) or "21-12-2025".
+        m = _DMY_RE.match(s)
+        if m:
+            try:
+                d = date(int(m.group("y")), int(m.group("m")), int(m.group("d")))
+                return d.isoformat()
+            except ValueError:
+                return None
+        # Sometimes the API returns full datetimes; keep the date part if it looks ISO-ish.
+        if len(s) >= 10 and _YMD_RE.match(s[:10]):
+            return s[:10]
+        return None
+
+    if isinstance(value, (int, float)):
+        d = _sheets_serial_to_date(float(value))
+        return d.isoformat() if d else None
+
+    return None
+
+
 @dataclass(frozen=True)
 class MaxDateResult:
     header: list[str]
@@ -79,6 +126,78 @@ class GoogleSheetsClient:
         creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/spreadsheets"])
         self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
         self._spreadsheet_id = spreadsheet_id
+
+    def get_values(
+        self,
+        sheet_name: str,
+        a1_range: str,
+        *,
+        value_render_option: str | None = None,
+        date_time_render_option: str | None = None,
+    ) -> list[list[Any]]:
+        sheet = _quote_sheet(sheet_name)
+        kwargs: dict[str, Any] = {}
+        if value_render_option is not None:
+            kwargs["valueRenderOption"] = value_render_option
+        if date_time_render_option is not None:
+            kwargs["dateTimeRenderOption"] = date_time_render_option
+        resp = (
+            self._service.spreadsheets()
+            .values()
+            .get(
+                spreadsheetId=self._spreadsheet_id,
+                range=f"{sheet}!{a1_range}",
+                **kwargs,
+            )
+            .execute()
+        )
+        values = resp.get("values") or []
+        return list(values)
+
+    def update_values(
+        self,
+        sheet_name: str,
+        a1_range: str,
+        *,
+        values: list[list[Any]],
+        value_input_option: str = "USER_ENTERED",
+    ) -> None:
+        sheet = _quote_sheet(sheet_name)
+        (
+            self._service.spreadsheets()
+            .values()
+            .update(
+                spreadsheetId=self._spreadsheet_id,
+                range=f"{sheet}!{a1_range}",
+                valueInputOption=value_input_option,
+                body={"values": values},
+            )
+            .execute()
+        )
+
+    def batch_update_values(
+        self,
+        sheet_name: str,
+        *,
+        updates: list[tuple[str, list[list[Any]]]],
+        value_input_option: str = "USER_ENTERED",
+    ) -> None:
+        if not updates:
+            return
+        sheet = _quote_sheet(sheet_name)
+        data = [{"range": f"{sheet}!{a1_range}", "values": values} for a1_range, values in updates]
+        (
+            self._service.spreadsheets()
+            .values()
+            .batchUpdate(
+                spreadsheetId=self._spreadsheet_id,
+                body={
+                    "valueInputOption": value_input_option,
+                    "data": data,
+                },
+            )
+            .execute()
+        )
 
     def get_header(self, sheet_name: str) -> list[str]:
         sheet = _quote_sheet(sheet_name)
@@ -110,7 +229,11 @@ class GoogleSheetsClient:
             .execute()
         )
         raw_values = [row[0] for row in (resp.get("values") or []) if row]
-        dates = [v for v in raw_values if isinstance(v, str) and _YMD_RE.match(v)]
+        dates: list[str] = []
+        for cell in raw_values:
+            ymd = _coerce_cell_to_ymd(cell)
+            if ymd:
+                dates.append(ymd)
         max_date = max(dates) if dates else None
         return MaxDateResult(header=header, date_column=date_column, max_date=max_date)
 

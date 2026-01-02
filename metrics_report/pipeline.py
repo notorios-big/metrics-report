@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 from metrics_report.config import AppConfig
+from metrics_report.customers import sync_consolidado_customers
 from metrics_report.dates import add_days, parse_ymd, yesterday_ymd
 from metrics_report.google_ads import (
     build_gaql_query,
@@ -87,7 +88,14 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
                     access_token=_require_env("shopify", "SHOPIFY_ACCESS_TOKEN", config.shopify.access_token),
                     query=query,
                 )
-                rows = aggregate_orders_to_rows(orders=orders, start_ymd=start, end_ymd=end, timezone=config.timezone)
+                rows = aggregate_orders_to_rows(
+                    orders=orders,
+                    start_ymd=start,
+                    end_ymd=end,
+                    timezone=config.timezone,
+                    fixed_deduction_per_order=config.shopify.fixed_deduction_per_order,
+                    vat_factor=config.shopify.vat_factor,
+                )
                 if dry_run:
                     _LOG.info("Shopify: dry-run, would append %d rows", len(rows))
                 else:
@@ -95,6 +103,14 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
                     _LOG.info("Shopify: appended %d rows", len(rows))
         except Exception as e:
             _LOG.exception("Shopify task failed")
+            errors.append(e)
+
+    if enabled("customers"):
+        try:
+            _require_env("customers", "SHOPIFY_ACCESS_TOKEN", config.shopify.access_token)
+            sync_consolidado_customers(config, end_ymd=last_date, dry_run=dry_run)
+        except Exception as e:
+            _LOG.exception("Customers task failed")
             errors.append(e)
 
     if enabled("meta"):

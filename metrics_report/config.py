@@ -25,6 +25,29 @@ def _required(name: str) -> str:
     return value
 
 
+def _env_float(name: str, *, default: float) -> float:
+    raw = _env(name)
+    if raw is None:
+        return default
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if value != value or value in (float("inf"), float("-inf")):
+        return default
+    return value
+
+
+def _env_int(name: str, *, default: int) -> int:
+    raw = _env(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return default
+
+
 @dataclass(frozen=True)
 class SheetsConfig:
     spreadsheet_id: str = "1h1_rGZEncDj8WRLnf4m9Kqr-78JGqoxq0CH_WnIzdH8"
@@ -32,6 +55,8 @@ class SheetsConfig:
     meta_sheet: str = "META"
     gads_sheet: str = "GADS"
     klaviyo_sheet: str = "KLAVIYO"
+    customers_spreadsheet_id: str = "1-EU1O1bWvrO6wjMTqIuFoDaAdiBFVepPtDM7pHSVbJU"
+    customers_sheet: str = "Consolidado"
 
 
 @dataclass(frozen=True)
@@ -39,6 +64,8 @@ class ShopifyConfig:
     shop_domain: str = "le-juste-s.myshopify.com"
     api_version: str = "2024-10"
     access_token: str = ""
+    vat_factor: float = 1.19
+    fixed_deduction_per_order: int = 0
 
 
 @dataclass(frozen=True)
@@ -88,12 +115,24 @@ def load_config() -> AppConfig:
         gads_sheet=_env("GOOGLE_SHEETS_GADS_SHEET", default=SheetsConfig.gads_sheet) or SheetsConfig.gads_sheet,
         klaviyo_sheet=_env("GOOGLE_SHEETS_KLAVIYO_SHEET", default=SheetsConfig.klaviyo_sheet)
         or SheetsConfig.klaviyo_sheet,
+        customers_spreadsheet_id=_env(
+            "GOOGLE_SHEETS_CUSTOMERS_SPREADSHEET_ID",
+            default=SheetsConfig.customers_spreadsheet_id,
+        )
+        or SheetsConfig.customers_spreadsheet_id,
+        customers_sheet=_env("GOOGLE_SHEETS_CUSTOMERS_SHEET", default=SheetsConfig.customers_sheet)
+        or SheetsConfig.customers_sheet,
     )
 
     shopify = ShopifyConfig(
         shop_domain=_env("SHOPIFY_SHOP_DOMAIN", default=ShopifyConfig.shop_domain) or ShopifyConfig.shop_domain,
         api_version=_env("SHOPIFY_API_VERSION", default=ShopifyConfig.api_version) or ShopifyConfig.api_version,
         access_token=_env("SHOPIFY_ACCESS_TOKEN", default="") or "",
+        vat_factor=_env_float("SHOPIFY_VAT_FACTOR", default=ShopifyConfig.vat_factor),
+        fixed_deduction_per_order=_env_int(
+            "SHOPIFY_FIXED_DEDUCTION_PER_ORDER",
+            default=ShopifyConfig.fixed_deduction_per_order,
+        ),
     )
 
     meta = MetaConfig(

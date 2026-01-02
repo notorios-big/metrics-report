@@ -26,11 +26,17 @@ query OrdersByDay($query: String!, $cursor: String) {
       node {
         id
         createdAt
+        email
+        phone
+        currentTotalDiscountsSet { shopMoney { amount currencyCode } }
+        totalDiscountsSet        { shopMoney { amount currencyCode } }
         currentTotalPriceSet { shopMoney { amount currencyCode } }
         totalPriceSet        { shopMoney { amount currencyCode } }
         currentSubtotalPriceSet { shopMoney { amount currencyCode } }
         subtotalPriceSet        { shopMoney { amount currencyCode } }
-        customer { id email numberOfOrders }
+        customer { id email numberOfOrders displayName firstName lastName phone }
+        billingAddress { phone }
+        shippingAddress { phone }
       }
     }
   }

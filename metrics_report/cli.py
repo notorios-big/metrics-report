@@ -183,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--only",
         nargs="*",
-        choices=["shopify", "meta", "google_ads", "klaviyo"],
+        choices=["shopify", "customers", "meta", "google_ads", "klaviyo"],
         default=None,
         help="Run only a subset of tasks.",
     )
@@ -226,6 +226,15 @@ def main(argv: list[str] | None = None) -> int:
             ):
                 header = sheets.get_header(sheet_name)
                 logging.info("Sheets OK: %s (%d columnas)", sheet_name, len(header))
+
+            customers_sheets = GoogleSheetsClient(config.sheets.customers_spreadsheet_id)
+            header = customers_sheets.get_header(config.sheets.customers_sheet)
+            logging.info(
+                "Sheets OK: %s/%s (%d columnas)",
+                config.sheets.customers_spreadsheet_id,
+                config.sheets.customers_sheet,
+                len(header),
+            )
             return 0
 
         run_pipeline(config, only=set(args.only) if args.only else None, dry_run=args.dry_run)
