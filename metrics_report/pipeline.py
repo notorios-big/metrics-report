@@ -252,17 +252,12 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
                 private_key = _require_env("klaviyo", "KLAVIYO_PRIVATE_KEY", config.klaviyo.private_key)
                 resp = fetch_metric_aggregates(private_key=private_key, revision=config.klaviyo.revision, body=body)
                 rows = metric_aggregates_to_sheet_rows(resp)
+                rows = [r for r in rows if r.get("Fecha", "") > max_saved]
                 if dry_run:
                     _LOG.info("Klaviyo: dry-run, would append %d rows", len(rows))
                 else:
-                    sheets.append_rows(config.sheets.klaviyo_sheet, header=max_info.header, rows=rows)
-                    merged = sheets.consolidate_sum_by_date(
-                        config.sheets.klaviyo_sheet,
-                        date_headers=["Fecha", "Día", "Dia"],
-                        sum_headers=["Suscriptores"],
-                    )
-                    if merged:
-                        _LOG.info("Klaviyo: consolidated %d duplicate row(s) after append", merged)
+                    if rows:
+                        sheets.append_rows(config.sheets.klaviyo_sheet, header=max_info.header, rows=rows)
                     _LOG.info("Klaviyo: appended %d rows", len(rows))
         except Exception as e:
             _LOG.exception("Klaviyo task failed")
