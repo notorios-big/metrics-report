@@ -113,6 +113,35 @@ def _coerce_cell_to_ymd(value: Any) -> str | None:
     return None
 
 
+def _coerce_cell_to_number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+
+    if isinstance(value, (int, float)):
+        try:
+            f = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if f != f or f in (float("inf"), float("-inf")):
+            return None
+        return f
+
+    if isinstance(value, str):
+        s = value.strip()
+        if not s:
+            return None
+        s = s.replace(",", ".")
+        try:
+            f = float(s)
+        except (TypeError, ValueError):
+            return None
+        if f != f or f in (float("inf"), float("-inf")):
+            return None
+        return f
+
+    return None
+
+
 @dataclass(frozen=True)
 class MaxDateResult:
     header: list[str]
@@ -123,7 +152,14 @@ class MaxDateResult:
 class GoogleSheetsClient:
     def __init__(self, spreadsheet_id: str):
         _maybe_load_local_credentials()
-        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        creds, project_id = google.auth.default(scopes=["https://www.googleapis.com/auth/spreadsheets"])
+        quota_project_id = (
+            os.getenv("GOOGLE_CLOUD_QUOTA_PROJECT")
+            or os.getenv("GOOGLE_CLOUD_PROJECT")
+            or (project_id.strip() if isinstance(project_id, str) else "")
+        )
+        if quota_project_id and hasattr(creds, "with_quota_project"):
+            creds = creds.with_quota_project(quota_project_id)
         self._service = build("sheets", "v4", credentials=creds, cache_discovery=False)
         self._spreadsheet_id = spreadsheet_id
 
@@ -236,6 +272,88 @@ class GoogleSheetsClient:
                 dates.append(ymd)
         max_date = max(dates) if dates else None
         return MaxDateResult(header=header, date_column=date_column, max_date=max_date)
+
+    def consolidate_sum_by_date(
+        self,
+        sheet_name: str,
+        *,
+        date_headers: list[str],
+        sum_headers: list[str],
+    ) -> int:
+        header = self.get_header(sheet_name)
+        if not header:
+            raise ValueError(f"Sheet '{sheet_name}' has no header row")
+
+        date_col_idx = next((i for i, h in enumerate(header) if h in date_headers), None)
+        if date_col_idx is None:
+            raise ValueError(f"Sheet '{sheet_name}' missing date header (expected one of: {date_headers})")
+
+        sum_col_indices: list[int] = []
+        for name in sum_headers:
+            idx = next((i for i, h in enumerate(header) if h == name), None)
+            if idx is None:
+                raise ValueError(f"Sheet '{sheet_name}' missing column '{name}'")
+            sum_col_indices.append(idx)
+
+        date_letter = _col_letter(date_col_idx)
+        sum_letters = [_col_letter(idx) for idx in sum_col_indices]
+
+        date_values = self.get_values(sheet_name, f"{date_letter}2:{date_letter}")
+        sum_values = [self.get_values(sheet_name, f"{letter}2:{letter}") for letter in sum_letters]
+        data_rows = max([len(date_values)] + [len(col) for col in sum_values])
+        if data_rows <= 0:
+            return 0
+
+        occurrences: dict[str, int] = {}
+        totals: dict[str, list[float]] = {}
+        for row_idx in range(data_rows):
+            date_cell = date_values[row_idx][0] if row_idx < len(date_values) and date_values[row_idx] else None
+            ymd = _coerce_cell_to_ymd(date_cell)
+            if not ymd:
+                continue
+
+            occurrences[ymd] = occurrences.get(ymd, 0) + 1
+            acc = totals.get(ymd)
+            if acc is None:
+                acc = [0.0] * len(sum_headers)
+                totals[ymd] = acc
+
+            for col_idx, col in enumerate(sum_values):
+                cell = col[row_idx][0] if row_idx < len(col) and col[row_idx] else None
+                number = _coerce_cell_to_number(cell)
+                if number is not None:
+                    acc[col_idx] += number
+
+        duplicates_removed = sum(count - 1 for count in occurrences.values() if count > 1)
+        if duplicates_removed <= 0:
+            return 0
+
+        def fmt(value: float) -> int | float:
+            if abs(value - round(value)) < 1e-9:
+                return int(round(value))
+            return value
+
+        sorted_dates = sorted(totals.keys())
+        rows_to_write = min(len(sorted_dates), data_rows)
+        padding = max(data_rows - rows_to_write, 0)
+
+        updates: list[tuple[str, list[list[Any]]]] = []
+        updates.append(
+            (
+                f"{date_letter}2:{date_letter}{data_rows + 1}",
+                [[d] for d in sorted_dates[:rows_to_write]] + [[""]] * padding,
+            )
+        )
+        for idx, letter in enumerate(sum_letters):
+            updates.append(
+                (
+                    f"{letter}2:{letter}{data_rows + 1}",
+                    [[fmt(totals[d][idx])] for d in sorted_dates[:rows_to_write]] + [[""]] * padding,
+                )
+            )
+
+        self.batch_update_values(sheet_name, updates=updates)
+        return duplicates_removed
 
     def append_rows(self, sheet_name: str, *, header: list[str], rows: list[dict[str, Any]]) -> None:
         if not rows:

@@ -88,6 +88,22 @@ def _maybe_handle_google_sheets_http_error(exc: BaseException) -> bool:
             continue
 
         if reason == "SERVICE_DISABLED":
+            message = error.get("message") if isinstance(error.get("message"), str) else ""
+            if "requires a quota project" in message.lower():
+                consumer = metadata.get("consumer") or metadata.get("containerInfo") or "tu proyecto"
+                project_flag = None
+                if isinstance(consumer, str) and consumer.startswith("projects/"):
+                    project_flag = consumer.split("/", 1)[1]
+                elif isinstance(consumer, str) and consumer:
+                    project_flag = consumer
+                logging.error(
+                    "Tus credenciales ADC (usuario) requieren un quota project para usar Sheets API. "
+                    "Solución: `gcloud auth application-default set-quota-project %s` "
+                    "(o usa `GOOGLE_APPLICATION_CREDENTIALS=/ruta/service-account.json`). "
+                    "Luego reintenta.",
+                    project_flag or "PROJECT_ID",
+                )
+                return True
             activation_url = metadata.get("activationUrl")
             consumer = metadata.get("consumer") or metadata.get("containerInfo") or "tu proyecto"
             project = summaries.get("project_id")
@@ -183,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--only",
         nargs="*",
-        choices=["shopify", "customers", "meta", "google_ads", "klaviyo"],
+        choices=["shopify", "customers", "meta", "meta_ads", "google_ads", "klaviyo"],
         default=None,
         help="Run only a subset of tasks.",
     )
@@ -221,6 +237,7 @@ def main(argv: list[str] | None = None) -> int:
             for sheet_name in (
                 config.sheets.purchase_sheet,
                 config.sheets.meta_sheet,
+                config.sheets.ads_sheet,
                 config.sheets.gads_sheet,
                 config.sheets.klaviyo_sheet,
             ):
@@ -247,19 +264,24 @@ def main(argv: list[str] | None = None) -> int:
             DefaultCredentialsError = None  # type: ignore[assignment]
             RefreshError = None  # type: ignore[assignment]
 
-        if DefaultCredentialsError is not None and isinstance(exc, DefaultCredentialsError):
-            logging.error(
-                "No se encontraron credenciales de Google (ADC). "
-                "Solución: `gcloud auth application-default login` "
-                "o exportar `GOOGLE_APPLICATION_CREDENTIALS=/ruta/service-account.json`."
-            )
-            return 2
-        if RefreshError is not None and isinstance(exc, RefreshError):
-            logging.error(
-                "Reautenticación requerida para credenciales de Google. "
-                "Ejecuta: `gcloud auth application-default login "
-                "--scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/spreadsheets`."
-            )
-            return 2
+        if DefaultCredentialsError is not None:
+            for candidate in _iter_exception_chain(exc):
+                if isinstance(candidate, DefaultCredentialsError):
+                    logging.error(
+                        "No se encontraron credenciales de Google (ADC). "
+                        "Solución: `gcloud auth application-default login` "
+                        "o exportar `GOOGLE_APPLICATION_CREDENTIALS=/ruta/service-account.json`."
+                    )
+                    return 2
+
+        if RefreshError is not None:
+            for candidate in _iter_exception_chain(exc):
+                if isinstance(candidate, RefreshError):
+                    logging.error(
+                        "Reautenticación requerida para credenciales de Google. "
+                        "Ejecuta: `gcloud auth application-default login "
+                        "--scopes=https://www.googleapis.com/auth/cloud-platform,https://www.googleapis.com/auth/spreadsheets`."
+                    )
+                    return 2
         raise
     return 0

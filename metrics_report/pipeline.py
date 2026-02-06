@@ -16,7 +16,12 @@ from metrics_report.klaviyo import (
     fetch_metric_aggregates,
     metric_aggregates_to_sheet_rows,
 )
-from metrics_report.meta_ads import fetch_account_insights_by_day, insights_to_sheet_rows
+from metrics_report.meta_ads import (
+    ad_insights_to_sheet_rows,
+    fetch_account_insights_by_day,
+    fetch_ad_insights_by_day,
+    insights_to_sheet_rows,
+)
 from metrics_report.sheets import GoogleSheetsClient
 from metrics_report.shopify import (
     aggregate_orders_to_rows,
@@ -59,6 +64,8 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
         sheet_to_check = config.sheets.purchase_sheet
     elif enabled("meta"):
         sheet_to_check = config.sheets.meta_sheet
+    elif enabled("meta_ads"):
+        sheet_to_check = config.sheets.ads_sheet
     elif enabled("google_ads"):
         sheet_to_check = config.sheets.gads_sheet
     elif enabled("klaviyo"):
@@ -142,6 +149,38 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
             _LOG.exception("Meta task failed")
             errors.append(e)
 
+    if enabled("meta_ads"):
+        try:
+            max_info = sheets.get_max_ymd_in_column(config.sheets.ads_sheet, date_headers=["Fecha", "Día", "Dia"])
+            if max_info.max_date:
+                max_saved_date = parse_ymd(max_info.max_date)
+                if not max_saved_date:
+                    raise RuntimeError(f"Invalid date in sheet '{config.sheets.ads_sheet}': {max_info.max_date!r}")
+                start = add_days(max_saved_date, 1).isoformat()
+            else:
+                start = "2025-11-01"
+                _LOG.info("Meta Ads: empty sheet, backfilling from %s", start)
+            end = _require_ymd("meta_ads end", last_date)
+            if start > end:
+                _LOG.info("Meta Ads: nothing to do (start=%s end=%s)", start, end)
+            else:
+                ad_insights = fetch_ad_insights_by_day(
+                    api_version=config.meta.api_version,
+                    ad_account_id=config.meta.ad_account_id,
+                    access_token=_require_env("meta_ads", "META_ACCESS_TOKEN", config.meta.access_token),
+                    since_ymd=start,
+                    until_ymd=end,
+                )
+                rows = ad_insights_to_sheet_rows(ad_insights)
+                if dry_run:
+                    _LOG.info("Meta Ads: dry-run, would append %d rows", len(rows))
+                else:
+                    sheets.append_rows(config.sheets.ads_sheet, header=max_info.header, rows=rows)
+                    _LOG.info("Meta Ads: appended %d rows", len(rows))
+        except Exception as e:
+            _LOG.exception("Meta Ads task failed")
+            errors.append(e)
+
     if enabled("google_ads"):
         try:
             max_info = sheets.get_max_ymd_in_column(config.sheets.gads_sheet, date_headers=["Fecha", "Día", "Dia"])
@@ -181,6 +220,15 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
 
     if enabled("klaviyo"):
         try:
+            if not dry_run:
+                merged = sheets.consolidate_sum_by_date(
+                    config.sheets.klaviyo_sheet,
+                    date_headers=["Fecha", "Día", "Dia"],
+                    sum_headers=["Suscriptores"],
+                )
+                if merged:
+                    _LOG.info("Klaviyo: consolidated %d duplicate row(s) in sheet", merged)
+
             max_info = sheets.get_max_ymd_in_column(config.sheets.klaviyo_sheet, date_headers=["Fecha", "Día", "Dia"])
             max_saved = _require_max_date(config.sheets.klaviyo_sheet, max_info.max_date)
             max_saved_date = parse_ymd(max_saved)
@@ -208,6 +256,13 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
                     _LOG.info("Klaviyo: dry-run, would append %d rows", len(rows))
                 else:
                     sheets.append_rows(config.sheets.klaviyo_sheet, header=max_info.header, rows=rows)
+                    merged = sheets.consolidate_sum_by_date(
+                        config.sheets.klaviyo_sheet,
+                        date_headers=["Fecha", "Día", "Dia"],
+                        sum_headers=["Suscriptores"],
+                    )
+                    if merged:
+                        _LOG.info("Klaviyo: consolidated %d duplicate row(s) after append", merged)
                     _LOG.info("Klaviyo: appended %d rows", len(rows))
         except Exception as e:
             _LOG.exception("Klaviyo task failed")
