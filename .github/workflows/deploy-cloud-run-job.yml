@@ -1,71 +1,26 @@
-name: Deploy Cloud Run Job
+name: Deploy to VM
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
 
-permissions:
-  contents: read
-  id-token: write
-
-env:
-  REGION: us-central1
-  JOB_NAME: metrics-report
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - id: auth
-        uses: google-github-actions/auth@v2
-        with:
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT_EMAIL }}
-
-      - uses: google-github-actions/setup-gcloud@v2
-
-      - name: Build image (Cloud Build)
+      - name: Deploy via SSH
         run: |
           set -euo pipefail
-          IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.JOB_NAME }}"
-          gcloud config set project "${{ secrets.GCP_PROJECT_ID }}"
-          BUILD_ID="$(gcloud builds submit --tag "${IMAGE}" . --async --format='value(id)')"
-          echo "Cloud Build started: ${BUILD_ID}"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.VM_SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          echo "${{ secrets.VM_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
 
-          # Avoid streaming logs (can fail with VPC-SC). Poll build status instead.
-          deadline="$((SECONDS + 1800))" # 30 min
-          while true; do
-            status="$(gcloud builds describe "${BUILD_ID}" --format='value(status)')"
-            echo "Build status: ${status}"
-            if [[ "${status}" == "SUCCESS" ]]; then
-              break
-            fi
-            if [[ "${status}" == "FAILURE" || "${status}" == "CANCELLED" || "${status}" == "TIMEOUT" ]]; then
-              echo "Build failed with status: ${status}" >&2
-              exit 1
-            fi
-            if (( SECONDS > deadline )); then
-              echo "Build timed out waiting for completion." >&2
-              exit 1
-            fi
-            sleep 10
-          done
-
-      - name: Create/update Cloud Run Job
-        run: |
-          set -euo pipefail
-          IMAGE="gcr.io/${{ secrets.GCP_PROJECT_ID }}/${{ env.JOB_NAME }}"
-          if gcloud run jobs describe "${{ env.JOB_NAME }}" --region "${{ env.REGION }}" >/dev/null 2>&1; then
-            gcloud run jobs update "${{ env.JOB_NAME }}" \
-              --image "${IMAGE}" \
-              --region "${{ env.REGION }}" \
-              --service-account "${{ secrets.CLOUD_RUN_JOB_SERVICE_ACCOUNT_EMAIL }}"
-          else
-            gcloud run jobs create "${{ env.JOB_NAME }}" \
-              --image "${IMAGE}" \
-              --region "${{ env.REGION }}" \
-              --service-account "${{ secrets.CLOUD_RUN_JOB_SERVICE_ACCOUNT_EMAIL }}"
-          fi
+          ssh -i ~/.ssh/deploy_key sam@${{ secrets.VM_HOST }} '
+            set -euo pipefail
+            cd /opt/metrics-report
+            git pull --ff-only
+            .venv/bin/pip install -r requirements.txt -q
+            echo "Deploy OK: $(git log --oneline -1)"
+          '
