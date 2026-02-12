@@ -26,7 +26,9 @@ from metrics_report.sheets import GoogleSheetsClient
 from metrics_report.shopify import (
     aggregate_orders_to_rows,
     build_shopify_search_query,
+    fetch_funnel_by_day,
     fetch_orders,
+    funnel_to_sheet_rows,
 )
 
 
@@ -62,6 +64,8 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
     sheet_to_check: str | None = None
     if enabled("shopify"):
         sheet_to_check = config.sheets.purchase_sheet
+    elif enabled("shopify_funnel"):
+        sheet_to_check = config.sheets.shopi_sheet
     elif enabled("meta"):
         sheet_to_check = config.sheets.meta_sheet
     elif enabled("meta_ads"):
@@ -110,6 +114,38 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
                     _LOG.info("Shopify: appended %d rows", len(rows))
         except Exception as e:
             _LOG.exception("Shopify task failed")
+            errors.append(e)
+
+    if enabled("shopify_funnel"):
+        try:
+            max_info = sheets.get_max_ymd_in_column(
+                config.sheets.shopi_sheet,
+                date_headers=["Día", "Dia", "dia", "Fecha", "date"],
+            )
+            max_saved = _require_max_date(config.sheets.shopi_sheet, max_info.max_date)
+            max_saved_date = parse_ymd(max_saved)
+            if not max_saved_date:
+                raise RuntimeError(f"Invalid date in sheet '{config.sheets.shopi_sheet}': {max_saved!r}")
+            start = add_days(max_saved_date, 1).isoformat()
+            end = _require_ymd("shopify_funnel end", last_date)
+            if start > end:
+                _LOG.info("Shopify funnel: nothing to do (start=%s end=%s)", start, end)
+            else:
+                funnel_data = fetch_funnel_by_day(
+                    shop_domain=config.shopify.shop_domain,
+                    api_version=config.shopify.api_version,
+                    access_token=_require_env("shopify_funnel", "SHOPIFY_ACCESS_TOKEN", config.shopify.access_token),
+                    start_ymd=start,
+                    end_ymd=end,
+                )
+                rows = funnel_to_sheet_rows(funnel_data)
+                if dry_run:
+                    _LOG.info("Shopify funnel: dry-run, would append %d rows", len(rows))
+                else:
+                    sheets.append_rows(config.sheets.shopi_sheet, header=max_info.header, rows=rows)
+                    _LOG.info("Shopify funnel: appended %d rows", len(rows))
+        except Exception as e:
+            _LOG.exception("Shopify funnel task failed")
             errors.append(e)
 
     if enabled("customers"):

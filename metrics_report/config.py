@@ -56,6 +56,7 @@ class SheetsConfig:
     gads_sheet: str = "GADS"
     klaviyo_sheet: str = "KLAVIYO"
     ads_sheet: str = "ADS"
+    shopi_sheet: str = "SHOPI"
     customers_spreadsheet_id: str = "1-EU1O1bWvrO6wjMTqIuFoDaAdiBFVepPtDM7pHSVbJU"
     customers_sheet: str = "Consolidado"
 
@@ -118,6 +119,8 @@ def load_config() -> AppConfig:
         or SheetsConfig.klaviyo_sheet,
         ads_sheet=_env("GOOGLE_SHEETS_ADS_SHEET", default=SheetsConfig.ads_sheet)
         or SheetsConfig.ads_sheet,
+        shopi_sheet=_env("GOOGLE_SHEETS_SHOPI_SHEET", default=SheetsConfig.shopi_sheet)
+        or SheetsConfig.shopi_sheet,
         customers_spreadsheet_id=_env(
             "GOOGLE_SHEETS_CUSTOMERS_SPREADSHEET_ID",
             default=SheetsConfig.customers_spreadsheet_id,

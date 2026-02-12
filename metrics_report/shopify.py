@@ -209,3 +209,89 @@ def aggregate_orders_to_rows(
 
     _LOG.info("Shopify aggregated %d day rows", len(rows))
     return rows
+
+
+SHOPIFY_FUNNEL_QUERY = """
+query ShopifyFunnel($query: String!) {
+  shopifyqlQuery(query: $query) {
+    __typename
+    ... on TableResponse {
+      tableData {
+        columns { name dataType displayName }
+        rowData
+        unformattedData
+      }
+    }
+    parseErrors {
+      code
+      message
+    }
+  }
+}
+"""
+
+
+def fetch_funnel_by_day(
+    *,
+    shop_domain: str,
+    api_version: str,
+    access_token: str,
+    start_ymd: str,
+    end_ymd: str,
+) -> list[dict[str, Any]]:
+    url = f"https://{shop_domain}/admin/api/{api_version}/graphql.json"
+    headers = {"Content-Type": "application/json", "X-Shopify-Access-Token": access_token}
+
+    shopifyql = (
+        "FROM products "
+        "SHOW sum(view_cart_sessions) AS add_to_cart, "
+        "sum(view_cart_checkout_sessions) AS begin_checkout, "
+        "sum(view_cart_checkout_purchase_sessions) AS purchase "
+        f"GROUP BY day SINCE {start_ymd} UNTIL {end_ymd} ORDER BY day ASC"
+    )
+
+    body = {"query": SHOPIFY_FUNNEL_QUERY, "variables": {"query": shopifyql}}
+    resp = request_json("POST", url, headers=headers, json_body=body)
+    if resp.get("errors"):
+        raise RuntimeError(f"Shopify GraphQL errors: {resp['errors']}")
+
+    ql_resp = (resp.get("data") or {}).get("shopifyqlQuery") or {}
+
+    parse_errors = ql_resp.get("parseErrors")
+    if parse_errors:
+        raise RuntimeError(f"ShopifyQL parse errors: {parse_errors}")
+
+    table_data = (ql_resp.get("tableData") or {})
+    columns = table_data.get("columns") or []
+    col_names = [c.get("name", "") for c in columns]
+    raw_rows = table_data.get("unformattedData") or table_data.get("rowData") or []
+
+    out: list[dict[str, Any]] = []
+    for row in raw_rows:
+        record: dict[str, Any] = {}
+        for i, val in enumerate(row):
+            if i < len(col_names):
+                record[col_names[i]] = val
+        out.append(record)
+
+    _LOG.info("ShopifyQL funnel returned %d day rows", len(out))
+    return out
+
+
+def funnel_to_sheet_rows(funnel_data: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for entry in funnel_data:
+        day = str(entry.get("day", ""))
+        if not day:
+            continue
+        # Strip time component if present (e.g. "2025-01-15T00:00:00" -> "2025-01-15")
+        day = day[:10]
+        rows.append(
+            {
+                "Día": day,
+                "Add to cart": int(entry.get("add_to_cart", 0) or 0),
+                "Begin Checkout": int(entry.get("begin_checkout", 0) or 0),
+                "Purchase": int(entry.get("purchase", 0) or 0),
+            }
+        )
+    return rows

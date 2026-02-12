@@ -199,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--only",
         nargs="*",
-        choices=["shopify", "customers", "meta", "meta_ads", "google_ads", "klaviyo"],
+        choices=["shopify", "shopify_funnel", "customers", "meta", "meta_ads", "google_ads", "klaviyo"],
         default=None,
         help="Run only a subset of tasks.",
     )
@@ -240,6 +240,7 @@ def main(argv: list[str] | None = None) -> int:
                 config.sheets.ads_sheet,
                 config.sheets.gads_sheet,
                 config.sheets.klaviyo_sheet,
+                config.sheets.shopi_sheet,
             ):
                 header = sheets.get_header(sheet_name)
                 logging.info("Sheets OK: %s (%d columnas)", sheet_name, len(header))
