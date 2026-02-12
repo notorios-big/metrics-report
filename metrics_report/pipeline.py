@@ -4,7 +4,14 @@ import logging
 
 from metrics_report.config import AppConfig
 from metrics_report.customers import sync_consolidado_customers
-from metrics_report.dates import add_days, parse_ymd, yesterday_ymd
+from metrics_report.dates import (
+    add_days,
+    daterange_inclusive,
+    datetime_to_ymd_in_tz,
+    parse_iso_datetime,
+    parse_ymd,
+    yesterday_ymd,
+)
 from metrics_report.google_ads import (
     build_gaql_query,
     get_access_token as get_google_ads_access_token,
@@ -26,10 +33,9 @@ from metrics_report.sheets import GoogleSheetsClient
 from metrics_report.shopify import (
     aggregate_orders_to_rows,
     build_shopify_search_query,
-    fetch_funnel_by_day,
     fetch_orders,
-    funnel_to_sheet_rows,
 )
+from metrics_report.webhook_db import get_counts
 
 
 _LOG = logging.getLogger(__name__)
@@ -131,14 +137,49 @@ def run_pipeline(config: AppConfig, *, only: set[str] | None = None, dry_run: bo
             if start > end:
                 _LOG.info("Shopify funnel: nothing to do (start=%s end=%s)", start, end)
             else:
-                funnel_data = fetch_funnel_by_day(
+                db_path = config.webhook.db_path
+                counts = get_counts(db_path, start, end)
+
+                # Pivot webhook counts into {date: {metric: count}}
+                by_day: dict[str, dict[str, int]] = {}
+                for row in counts:
+                    d = str(row["date"])
+                    m = str(row["metric"])
+                    by_day.setdefault(d, {})[m] = int(row["count"])
+
+                # Fetch purchase counts from Shopify orders (more reliable than webhooks)
+                access_token = _require_env("shopify_funnel", "SHOPIFY_ACCESS_TOKEN", config.shopify.access_token)
+                query = build_shopify_search_query(start_ymd=start, end_ymd=end)
+                orders = fetch_orders(
                     shop_domain=config.shopify.shop_domain,
                     api_version=config.shopify.api_version,
-                    access_token=_require_env("shopify_funnel", "SHOPIFY_ACCESS_TOKEN", config.shopify.access_token),
-                    start_ymd=start,
-                    end_ymd=end,
+                    access_token=access_token,
+                    query=query,
                 )
-                rows = funnel_to_sheet_rows(funnel_data)
+                # Count orders per day
+                for order in orders:
+                    created_at = order.get("createdAt")
+                    if not isinstance(created_at, str) or not created_at:
+                        continue
+                    day_key = datetime_to_ymd_in_tz(parse_iso_datetime(created_at), config.timezone)
+                    by_day.setdefault(day_key, {})["purchase"] = by_day.get(day_key, {}).get("purchase", 0) + 1
+
+                # Build rows for each day in range
+                start_date = parse_ymd(start)
+                end_date = parse_ymd(end)
+                if not start_date or not end_date:
+                    raise RuntimeError("Invalid start/end for shopify_funnel")
+                rows: list[dict[str, object]] = []
+                for day in daterange_inclusive(start_date, end_date):
+                    key = day.isoformat()
+                    day_data = by_day.get(key, {})
+                    rows.append({
+                        "Día": key,
+                        "Add to cart": day_data.get("add_to_cart", 0),
+                        "Begin Checkout": day_data.get("begin_checkout", 0),
+                        "Purchase": day_data.get("purchase", 0),
+                    })
+
                 if dry_run:
                     _LOG.info("Shopify funnel: dry-run, would append %d rows", len(rows))
                 else:

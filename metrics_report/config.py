@@ -97,6 +97,12 @@ class KlaviyoConfig:
 
 
 @dataclass(frozen=True)
+class WebhookConfig:
+    db_path: str = "/opt/metrics-report/webhooks.db"
+    shopify_webhook_secret: str = ""
+
+
+@dataclass(frozen=True)
 class AppConfig:
     timezone: str = "America/Santiago"
     sheets: SheetsConfig = SheetsConfig()
@@ -104,6 +110,7 @@ class AppConfig:
     meta: MetaConfig = MetaConfig()
     google_ads: GoogleAdsConfig = GoogleAdsConfig()
     klaviyo: KlaviyoConfig = KlaviyoConfig()
+    webhook: WebhookConfig = WebhookConfig()
 
 
 def load_config() -> AppConfig:
@@ -170,6 +177,11 @@ def load_config() -> AppConfig:
         private_key=_env("KLAVIYO_PRIVATE_KEY", default="") or "",
     )
 
+    webhook = WebhookConfig(
+        db_path=_env("WEBHOOK_DB_PATH", default=WebhookConfig.db_path) or WebhookConfig.db_path,
+        shopify_webhook_secret=_env("SHOPIFY_WEBHOOK_SECRET", default="") or "",
+    )
+
     timezone = _env("REPORT_TIMEZONE", default=AppConfig.timezone) or AppConfig.timezone
     return AppConfig(
         timezone=timezone,
@@ -178,4 +190,5 @@ def load_config() -> AppConfig:
         meta=meta,
         google_ads=google_ads,
         klaviyo=klaviyo,
+        webhook=webhook,
     )

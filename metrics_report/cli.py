@@ -196,6 +196,8 @@ def main(argv: list[str] | None = None) -> int:
         help="Overwrite GOOGLE_ADS_OAUTH_REFRESH_TOKEN in the env file even if already set.",
     )
 
+    subparsers.add_parser("register-webhooks", help="Register Shopify webhook subscriptions.")
+
     parser.add_argument(
         "--only",
         nargs="*",
@@ -223,6 +225,18 @@ def main(argv: list[str] | None = None) -> int:
         from metrics_report.oauth import run_oauth_command
 
         run_oauth_command(args)
+        return 0
+
+    if args.command == "register-webhooks":
+        from metrics_report.config import load_config
+        from metrics_report.webhook_register import register_webhooks
+
+        config = load_config()
+        register_webhooks(
+            shop_domain=config.shopify.shop_domain,
+            api_version=config.shopify.api_version,
+            access_token=config.shopify.access_token,
+        )
         return 0
 
     from metrics_report.config import load_config

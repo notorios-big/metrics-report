@@ -1,0 +1,14 @@
+[Unit]
+Description=Shopify Webhook Receiver
+After=network.target
+
+[Service]
+User=sam
+WorkingDirectory=/opt/metrics-report
+ExecStart=/opt/metrics-report/.venv/bin/uvicorn metrics_report.webhook_app:app --host 127.0.0.1 --port 6972
+Restart=always
+Environment=WEBHOOK_DB_PATH=/opt/metrics-report/webhooks.db
+Environment=SHOPIFY_WEBHOOK_SECRET=<from-secret-manager>
+
+[Install]
+WantedBy=multi-user.target

@@ -18,6 +18,7 @@ echo "=== metrics-report $(date -Iseconds) ==="
 # --- Fetch secrets from Secret Manager ---
 secrets=(
   LEJUSTE_SHOPIFY_ACCESS_TOKEN
+  LEJUSTE_SHOPIFY_WEBHOOK_SECRET
   LEJUSTE_META_ACCESS_TOKEN
   LEJUSTE_KLAVIYO_PRIVATE_KEY
   LEJUSTE_GOOGLE_ADS_DEVELOPER_TOKEN
