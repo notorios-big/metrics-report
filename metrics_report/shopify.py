@@ -231,6 +231,9 @@ query ShopifyFunnel($query: String!) {
 """
 
 
+_SHOPIFYQL_MIN_API_VERSION = "2025-10"
+
+
 def fetch_funnel_by_day(
     *,
     shop_domain: str,
@@ -239,7 +242,9 @@ def fetch_funnel_by_day(
     start_ymd: str,
     end_ymd: str,
 ) -> list[dict[str, Any]]:
-    url = f"https://{shop_domain}/admin/api/{api_version}/graphql.json"
+    # shopifyqlQuery requires API version 2025-10+
+    effective_version = max(api_version, _SHOPIFYQL_MIN_API_VERSION)
+    url = f"https://{shop_domain}/admin/api/{effective_version}/graphql.json"
     headers = {"Content-Type": "application/json", "X-Shopify-Access-Token": access_token}
 
     shopifyql = (
