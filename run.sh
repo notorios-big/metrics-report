@@ -18,7 +18,6 @@ echo "=== metrics-report $(date -Iseconds) ==="
 # --- Fetch secrets from Secret Manager ---
 secrets=(
   LEJUSTE_SHOPIFY_ACCESS_TOKEN
-  LEJUSTE_SHOPIFY_WEBHOOK_SECRET
   LEJUSTE_META_ACCESS_TOKEN
   LEJUSTE_KLAVIYO_PRIVATE_KEY
   LEJUSTE_GOOGLE_ADS_DEVELOPER_TOKEN
@@ -31,6 +30,19 @@ for secret in "${secrets[@]}"; do
   value="$(gcloud secrets versions access latest --secret="${secret}" --project="${PROJECT_ID}" 2>/dev/null)" || {
     echo "ERROR: failed to read secret ${secret}" >&2
     exit 1
+  }
+  export "${secret}=${value}"
+done
+
+# Optional secrets (won't fail if missing)
+optional_secrets=(
+  LEJUSTE_SHOPIFY_WEBHOOK_SECRET
+)
+
+for secret in "${optional_secrets[@]}"; do
+  value="$(gcloud secrets versions access latest --secret="${secret}" --project="${PROJECT_ID}" 2>/dev/null)" || {
+    echo "WARN: optional secret ${secret} not found, skipping" >&2
+    continue
   }
   export "${secret}=${value}"
 done
